@@ -10,20 +10,28 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/bgentry/que-go"
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-sql"
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/pq"
+	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/jackc/pgx"
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/julienschmidt/httprouter"
 	"github.com/flynn/flynn/controller/client"
 	"github.com/flynn/flynn/deployer/types"
 	"github.com/flynn/flynn/discoverd/client"
 	"github.com/flynn/flynn/pkg/postgres"
 	"github.com/flynn/flynn/pkg/random"
+	"github.com/flynn/flynn/pkg/shutdown"
 )
 
+var q *que.Client
 var db *postgres.DB
 var client *controller.Client
 
 var ErrNotFound = errors.New("deployer: resource not found")
+
+type deployID struct {
+	ID string
+}
 
 func main() {
 	var err error
@@ -52,11 +60,51 @@ func main() {
 		log.Fatal(err)
 	}
 
+	pgxcfg, err := pgx.ParseURI(fmt.Sprintf("http://%s:%s@%s/%s", os.Getenv("PGUSER"), os.Getenv("PGPASSWORD"), db.Addr(), os.Getenv("PGDATABASE")))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pgxpool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
+		ConnConfig:   pgxcfg,
+		AfterConnect: que.PrepareStatements,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pgxpool.Close()
+
+	q = que.NewClient(pgxpool)
+	wm := que.WorkMap{
+		"Deployment": handleJob,
+	}
+
+	workers := que.NewWorkerPool(q, wm, 10)
+	go workers.Start()
+	shutdown.BeforeExit(func() { workers.Shutdown() })
+
 	router := httprouter.New()
 	router.POST("/deployments", createDeployment)
 	router.GET("/deployments/:deployment_id/events", streamDeploymentEvents)
 
+	log.Println("Listening for HTTP requests on", addr)
 	log.Fatal(http.ListenAndServe(addr, router))
+}
+
+func handleJob(job *que.Job) (e error) {
+	var args deployID
+	if err := json.Unmarshal(job.Args, &args); err != nil {
+		// TODO: log error
+		return err
+	}
+	id := args.ID
+	deployment, err := getDeployment(id)
+	if err != nil {
+		// TODO: log/handle error
+		return nil
+	}
+	// TODO: do deployment
+	return nil
 }
 
 func createDeployment(w http.ResponseWriter, req *http.Request, params httprouter.Params) {
@@ -98,12 +146,38 @@ func createDeployment(w http.ResponseWriter, req *http.Request, params httproute
 		http.Error(w, err.Error(), 500)
 		return
 	}
+
+	args, err := json.Marshal(deployID{ID: deployment.ID})
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if err := q.Enqueue(&que.Job{
+		Type: "Deployment",
+		Args: args,
+	}); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	deployment.ID = postgres.CleanUUID(deployment.ID)
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(deployment); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+}
+
+func getDeployment(id string) (*deployer.Deployment, error) {
+	d := &deployer.Deployment{}
+	query := "SELECT deployment_id, app_id, old_release_id, new_release_id, strategy, created_at FROM deployments WHERE deployment_id = $1"
+	err := db.QueryRow(query, id).Scan(&d.ID, &d.AppID, &d.OldReleaseID, &d.NewReleaseID, &d.Strategy, &d.CreatedAt)
+	d.ID = postgres.CleanUUID(d.ID)
+	d.OldReleaseID = postgres.CleanUUID(d.OldReleaseID)
+	d.NewReleaseID = postgres.CleanUUID(d.NewReleaseID)
+	if err != nil {
+		return nil, err
+	}
+	return d, nil
 }
 
 // TODO: share with controller streamJobs
