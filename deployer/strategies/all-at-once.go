@@ -28,9 +28,16 @@ func allAtOnce(client *controller.Client, d *deployer.Deployment, events chan<- 
 	}
 	expect := make(jobEvents)
 	for typ, n := range f.Processes {
-		expect[typ] = map[string]int{"up": n}
+		for i := 0; i < n; i++ {
+			events <- deployer.DeploymentEvent{
+				ReleaseID: d.NewReleaseID,
+				JobState:  "starting",
+				JobType:   typ,
+			}
+		}
+		expect[d.NewReleaseID] = map[string]map[string]int{typ: {"up": n}}
 	}
-	if _, _, err := waitForJobEvents(jobStream, expect); err != nil {
+	if err := waitForJobEvents(jobStream, events, expect); err != nil {
 		return err
 	}
 	// scale to 0
@@ -42,9 +49,16 @@ func allAtOnce(client *controller.Client, d *deployer.Deployment, events chan<- 
 	}
 	expect = make(jobEvents)
 	for typ, n := range f.Processes {
-		expect[typ] = map[string]int{"down": n}
+		for i := 0; i < n; i++ {
+			events <- deployer.DeploymentEvent{
+				ReleaseID: d.OldReleaseID,
+				JobState:  "stopping",
+				JobType:   typ,
+			}
+		}
+		expect[d.OldReleaseID] = map[string]map[string]int{typ: {"down": n}}
 	}
-	if _, _, err := waitForJobEvents(jobStream, expect); err != nil {
+	if err := waitForJobEvents(jobStream, events, expect); err != nil {
 		return err
 	}
 	return nil
