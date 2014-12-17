@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	c "github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-check"
@@ -15,8 +16,13 @@ type DeployerSuite struct {
 
 var _ = c.Suite(&DeployerSuite{})
 
-func (s *DeployerSuite) TestDeployment(t *c.C) {
+func (s *DeployerSuite) createDeployment(t *c.C, strategy string) *deployer.Deployment {
 	app, release := s.createApp(t)
+
+	jobStream := make(chan *ct.JobEvent)
+	scale, err := s.controllerClient(t).StreamJobEvents(app.Name, 0, jobStream)
+	t.Assert(err, c.IsNil)
+
 	t.Assert(s.controllerClient(t).PutFormation(&ct.Formation{
 		AppID:     app.ID,
 		ReleaseID: release.ID,
@@ -28,28 +34,29 @@ func (s *DeployerSuite) TestDeployment(t *c.C) {
 	release.ID = ""
 	t.Assert(s.controllerClient(t).CreateRelease(release), c.IsNil)
 
+	waitForJobEvents(t, scale, jobStream, jobEvents{"printer": {"up": 2}})
+
 	client, err := deployerc.New()
 	t.Assert(err, c.IsNil)
-
-	stream, err := client.StreamDeploymentEvents(app.ID, 0)
-	t.Assert(err, c.IsNil)
-	defer stream.Close()
 
 	deployment := &deployer.Deployment{
 		AppID:        app.ID,
 		OldReleaseID: oldReleaseID,
 		NewReleaseID: release.ID,
-		Strategy:     "one-by-one",
+		Strategy:     strategy,
 	}
 	t.Assert(client.CreateDeployment(deployment), c.IsNil)
+	return deployment
+}
 
+func waitForDeploymentEvents(t *c.C, stream chan *deployer.DeploymentEvent, expected []*deployer.DeploymentEvent) {
 	// wait for an event with no release to mark the end of the deployment,
 	// collecting events along the way
 	events := []*deployer.DeploymentEvent{}
 loop:
 	for {
 		select {
-		case e := <-stream.Events:
+		case e := <-stream:
 			events = append(events, e)
 			if e.ReleaseID == "" {
 				break loop
@@ -58,11 +65,66 @@ loop:
 			t.Fatal("timed out waiting for deployment event")
 		}
 	}
-	t.Assert(events, c.DeepEquals, []*deployer.DeploymentEvent{
-		{ReleaseID: release.ID, JobType: "printer", JobState: "up"},
+	compare := func(t *c.C, i *deployer.DeploymentEvent, j *deployer.DeploymentEvent) {
+		fmt.Println("Comparing", i, j)
+		t.Assert(i.ReleaseID, c.Equals, j.ReleaseID)
+		t.Assert(i.JobType, c.Equals, j.JobType)
+		t.Assert(i.JobState, c.Equals, j.JobState)
+	}
+
+	for i, e := range expected {
+		compare(t, events[i], e)
+	}
+}
+
+func (s *DeployerSuite) TestOneByOneStrategy(t *c.C) {
+	deployment := s.createDeployment(t, "one-by-one")
+	releaseID := deployment.NewReleaseID
+	oldReleaseID := deployment.OldReleaseID
+
+	client, err := deployerc.New()
+	t.Assert(err, c.IsNil)
+	events := make(chan *deployer.DeploymentEvent)
+	stream, err := client.StreamDeploymentEvents(deployment.ID, 0, events)
+	t.Assert(err, c.IsNil)
+	defer stream.Close()
+
+	expected := []*deployer.DeploymentEvent{
+		{ReleaseID: releaseID, JobType: "printer", JobState: "starting"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "up"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping"},
 		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down"},
-		{ReleaseID: release.ID, JobType: "printer", JobState: "up"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "starting"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "up"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping"},
 		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down"},
-		{ReleaseID: ""},
-	})
+		{ReleaseID: "", JobType: "", JobState: ""},
+	}
+	waitForDeploymentEvents(t, events, expected)
+}
+
+func (s *DeployerSuite) TestAllAtOnceStrategy(t *c.C) {
+	deployment := s.createDeployment(t, "all-at-once")
+	releaseID := deployment.NewReleaseID
+	oldReleaseID := deployment.OldReleaseID
+
+	client, err := deployerc.New()
+	t.Assert(err, c.IsNil)
+	events := make(chan *deployer.DeploymentEvent)
+	stream, err := client.StreamDeploymentEvents(deployment.ID, 0, events)
+	t.Assert(err, c.IsNil)
+	defer stream.Close()
+
+	expected := []*deployer.DeploymentEvent{
+		{ReleaseID: releaseID, JobType: "printer", JobState: "starting"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "starting"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "up"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "up"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down"},
+		{ReleaseID: "", JobType: "", JobState: ""},
+	}
+	waitForDeploymentEvents(t, events, expected)
 }
