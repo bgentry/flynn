@@ -101,13 +101,19 @@ func handleJob(job *que.Job) (e error) {
 	id := args.ID
 	deployment, err := getDeployment(id)
 	if err != nil {
-		// TODO: log/handle error
-		return nil
+		// TODO: log error
+		return err
+	}
+	// for recovery purposes, fetch old formation
+	f, err := client.GetFormation(deployment.AppID, deployment.OldReleaseID)
+	if err != nil {
+		// TODO: log error
+		return err
 	}
 	strategyFunc, err := strategy.Get(deployment.Strategy)
 	if err != nil {
-		// TODO: log/handle error
-		return nil
+		// TODO: log error
+		return err
 	}
 	events := make(chan deployer.DeploymentEvent)
 	defer close(events)
@@ -118,6 +124,22 @@ func handleJob(job *que.Job) (e error) {
 				log.Fatal(err)
 			}
 		}
+	}()
+	defer func() {
+		// rollback failed deploy
+		if e != nil {
+			events <- deployer.DeploymentEvent{ReleaseID: "fail"}
+			if e = client.PutFormation(f); e != nil {
+				return
+			}
+			if e = client.DeleteFormation(deployment.AppID, deployment.NewReleaseID); e != nil {
+				return
+			}
+			if e = client.SetAppRelease(deployment.AppID, deployment.NewReleaseID); e != nil {
+				return
+			}
+		}
+		e = nil
 	}()
 	if err := strategyFunc(client, deployment, events); err != nil {
 		// TODO: log/handle error
