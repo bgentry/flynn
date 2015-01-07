@@ -197,6 +197,9 @@ func createDeployment(w http.ResponseWriter, req *http.Request, params httproute
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	deployment.ID = postgres.CleanUUID(deployment.ID)
+	deployment.OldReleaseID = postgres.CleanUUID(deployment.OldReleaseID)
+	deployment.NewReleaseID = postgres.CleanUUID(deployment.NewReleaseID)
 
 	args, err := json.Marshal(deployID{ID: deployment.ID})
 	if err != nil {
@@ -210,7 +213,6 @@ func createDeployment(w http.ResponseWriter, req *http.Request, params httproute
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	deployment.ID = postgres.CleanUUID(deployment.ID)
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(deployment); err != nil {
 		http.Error(w, err.Error(), 500)
