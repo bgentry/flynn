@@ -128,7 +128,10 @@ func handleJob(job *que.Job) (e error) {
 	defer func() {
 		// rollback failed deploy
 		if e != nil {
-			events <- deployer.DeploymentEvent{ReleaseID: "fail"}
+			events <- deployer.DeploymentEvent{
+				ReleaseID: deployment.NewReleaseID,
+				Status:    "failed",
+			}
 			if e = client.PutFormation(f); e != nil {
 				return
 			}
@@ -151,7 +154,8 @@ func handleJob(job *que.Job) (e error) {
 	// signal success
 	if err := sendDeploymentEvent(deployer.DeploymentEvent{
 		DeploymentID: deployment.ID,
-		ReleaseID:    "",
+		ReleaseID:    deployment.NewReleaseID,
+		Status:       "complete",
 	}); err != nil {
 		log.Fatal(err)
 	}
@@ -234,8 +238,11 @@ func getDeployment(id string) (*deployer.Deployment, error) {
 }
 
 func sendDeploymentEvent(e deployer.DeploymentEvent) error {
-	query := "INSERT INTO deployment_events (deployment_id, release_id, job_type, job_state) VALUES ($1, $2, $3, $4)"
-	return db.Exec(query, e.DeploymentID, e.ReleaseID, e.JobType, e.JobState)
+	if e.Status == "" {
+		e.Status = "running"
+	}
+	query := "INSERT INTO deployment_events (deployment_id, release_id, job_type, job_state, status) VALUES ($1, $2, $3, $4, $5)"
+	return db.Exec(query, e.DeploymentID, e.ReleaseID, e.JobType, e.JobState, e.Status)
 }
 
 // TODO: share with controller streamJobs
@@ -354,7 +361,7 @@ func streamDeploymentEvents(w http.ResponseWriter, req *http.Request, params htt
 }
 
 func listDeploymentEvents(deploymentID string, sinceID int64) ([]*deployer.DeploymentEvent, error) {
-	query := "SELECT event_id, deployment_id, release_id, job_type, job_state, created_at FROM deployment_events WHERE deployment_id = $1 AND event_id > $2"
+	query := "SELECT event_id, deployment_id, release_id, job_type, job_state, status, created_at FROM deployment_events WHERE deployment_id = $1 AND event_id > $2"
 	rows, err := db.Query(query, deploymentID, sinceID)
 	if err != nil {
 		return nil, err
@@ -372,13 +379,13 @@ func listDeploymentEvents(deploymentID string, sinceID int64) ([]*deployer.Deplo
 }
 
 func getDeploymentEvent(id int64) (*deployer.DeploymentEvent, error) {
-	row := db.QueryRow("SELECT event_id, deployment_id, release_id, job_type, job_state, created_at FROM deployment_events WHERE event_id = $1", id)
+	row := db.QueryRow("SELECT event_id, deployment_id, release_id, job_type, job_state, status, created_at FROM deployment_events WHERE event_id = $1", id)
 	return scanDeploymentEvent(row)
 }
 
 func scanDeploymentEvent(s postgres.Scanner) (*deployer.DeploymentEvent, error) {
 	event := &deployer.DeploymentEvent{}
-	err := s.Scan(&event.ID, &event.DeploymentID, &event.ReleaseID, &event.JobType, &event.JobState, &event.CreatedAt)
+	err := s.Scan(&event.ID, &event.DeploymentID, &event.ReleaseID, &event.JobType, &event.JobState, &event.Status, &event.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			err = ErrNotFound

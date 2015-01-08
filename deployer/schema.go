@@ -34,10 +34,12 @@ func migrateDB(db *sql.DB) error {
     created_at timestamptz NOT NULL DEFAULT now())`,
 
 		`CREATE SEQUENCE deployment_event_ids`,
+		`CREATE TYPE deployment_status AS ENUM ('running', 'complete', 'failed')`,
 		`CREATE TABLE deployment_events (
     event_id bigint PRIMARY KEY DEFAULT nextval('deployment_event_ids'),
     deployment_id uuid NOT NULL REFERENCES deployments (deployment_id),
     release_id uuid NOT NULL,
+    status deployment_status NOT NULL DEFAULT 'running',
     job_type text,
     job_state text,
     created_at timestamptz NOT NULL DEFAULT now())`,

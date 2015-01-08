@@ -58,7 +58,7 @@ loop:
 		select {
 		case e := <-stream:
 			events = append(events, e)
-			if e.ReleaseID == "" {
+			if e.Status == "complete" {
 				break loop
 			}
 		case <-time.After(5 * time.Second):
@@ -70,6 +70,7 @@ loop:
 		t.Assert(i.ReleaseID, c.Equals, j.ReleaseID)
 		t.Assert(i.JobType, c.Equals, j.JobType)
 		t.Assert(i.JobState, c.Equals, j.JobState)
+		t.Assert(i.Status, c.Equals, j.Status)
 	}
 
 	for i, e := range expected {
@@ -90,15 +91,15 @@ func (s *DeployerSuite) TestOneByOneStrategy(t *c.C) {
 	defer stream.Close()
 
 	expected := []*deployer.DeploymentEvent{
-		{ReleaseID: releaseID, JobType: "printer", JobState: "starting"},
-		{ReleaseID: releaseID, JobType: "printer", JobState: "up"},
-		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping"},
-		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down"},
-		{ReleaseID: releaseID, JobType: "printer", JobState: "starting"},
-		{ReleaseID: releaseID, JobType: "printer", JobState: "up"},
-		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping"},
-		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down"},
-		{ReleaseID: "", JobType: "", JobState: ""},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "starting", Status: "running"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "up", Status: "running"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping", Status: "running"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down", Status: "running"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "starting", Status: "running"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "up", Status: "running"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping", Status: "running"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down", Status: "running"},
+		{ReleaseID: releaseID, JobType: "", JobState: "", Status: "complete"},
 	}
 	waitForDeploymentEvents(t, events, expected)
 }
@@ -116,15 +117,15 @@ func (s *DeployerSuite) TestAllAtOnceStrategy(t *c.C) {
 	defer stream.Close()
 
 	expected := []*deployer.DeploymentEvent{
-		{ReleaseID: releaseID, JobType: "printer", JobState: "starting"},
-		{ReleaseID: releaseID, JobType: "printer", JobState: "starting"},
-		{ReleaseID: releaseID, JobType: "printer", JobState: "up"},
-		{ReleaseID: releaseID, JobType: "printer", JobState: "up"},
-		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping"},
-		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping"},
-		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down"},
-		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down"},
-		{ReleaseID: "", JobType: "", JobState: ""},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "starting", Status: "running"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "starting", Status: "running"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "up", Status: "running"},
+		{ReleaseID: releaseID, JobType: "printer", JobState: "up", Status: "running"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping", Status: "running"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping", Status: "running"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down", Status: "running"},
+		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "down", Status: "running"},
+		{ReleaseID: releaseID, JobType: "", JobState: "", Status: "complete"},
 	}
 	waitForDeploymentEvents(t, events, expected)
 }
