@@ -31,7 +31,11 @@ func migrateDB(db *sql.DB) error {
     old_release_id uuid NOT NULL,
     new_release_id uuid NOT NULL,
     strategy deployment_strategy NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now())`,
+    created_at timestamptz NOT NULL DEFAULT now())
+    finished_at timestamptz`,
+
+		`CREATE UNIQUE INDEX isolate_deploys ON deployment_strategy (old_release_id, new_release_id)
+    WHERE finished_at is NULL`,
 
 		`CREATE SEQUENCE deployment_event_ids`,
 		`CREATE TYPE deployment_status AS ENUM ('running', 'complete', 'failed')`,

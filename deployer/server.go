@@ -151,6 +151,9 @@ func handleJob(job *que.Job) (e error) {
 	if err := client.SetAppRelease(deployment.AppID, deployment.NewReleaseID); err != nil {
 		return err
 	}
+	if err := setDeploymentDone(deployment.ID); err != nil {
+		return err
+	}
 	// signal success
 	if err := sendDeploymentEvent(deployer.DeploymentEvent{
 		DeploymentID: deployment.ID,
@@ -235,6 +238,10 @@ func getDeployment(id string) (*deployer.Deployment, error) {
 		return nil, err
 	}
 	return d, nil
+}
+
+func setDeploymentDone(id string) error {
+	return db.Exec("UPDATE deployments SET finished_at = now() WHERE deployment_id = $1", id)
 }
 
 func sendDeploymentEvent(e deployer.DeploymentEvent) error {
