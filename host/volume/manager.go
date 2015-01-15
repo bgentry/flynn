@@ -42,6 +42,14 @@ func (m *Manager) AddProvider(id string, p Provider) error {
 	return nil
 }
 
+func (m *Manager) Volumes() map[string]Volume {
+	r := make(map[string]Volume)
+	for k, v := range m.volumes {
+		r[k] = v
+	}
+	return r
+}
+
 /*
 	volume.Manager implements the volume.Provider interface by
 	delegating NewVolume requests to the default Provider.
