@@ -6,8 +6,6 @@ import (
 
 	c "github.com/flynn/flynn/Godeps/_workspace/src/github.com/flynn/go-check"
 	ct "github.com/flynn/flynn/controller/types"
-	deployerc "github.com/flynn/flynn/deployer/client"
-	"github.com/flynn/flynn/deployer/types"
 )
 
 type DeployerSuite struct {
@@ -16,12 +14,15 @@ type DeployerSuite struct {
 
 var _ = c.Suite(&DeployerSuite{})
 
-func (s *DeployerSuite) createDeployment(t *c.C, strategy string) *deployer.Deployment {
+func (s *DeployerSuite) createDeployment(t *c.C, strategy string) *ct.Deployment {
 	app, release := s.createApp(t)
+	app.Strategy = strategy
+	s.controllerClient(t).UpdateApp(app)
 
 	jobStream := make(chan *ct.JobEvent)
 	scale, err := s.controllerClient(t).StreamJobEvents(app.Name, 0, jobStream)
 	t.Assert(err, c.IsNil)
+	defer scale.Close()
 
 	t.Assert(s.controllerClient(t).PutFormation(&ct.Formation{
 		AppID:     app.ID,
@@ -29,30 +30,21 @@ func (s *DeployerSuite) createDeployment(t *c.C, strategy string) *deployer.Depl
 		Processes: map[string]int{"printer": 2},
 	}), c.IsNil)
 
+	waitForJobEvents(t, scale, jobStream, jobEvents{"printer": {"up": 2}})
+
 	// create a new release for the deployment
-	oldReleaseID := release.ID
 	release.ID = ""
 	t.Assert(s.controllerClient(t).CreateRelease(release), c.IsNil)
 
-	waitForJobEvents(t, scale, jobStream, jobEvents{"printer": {"up": 2}})
-
-	client, err := deployerc.New()
+	deployment, err := s.controllerClient(t).CreateDeployment(app.ID)
 	t.Assert(err, c.IsNil)
-
-	deployment := &deployer.Deployment{
-		AppID:        app.ID,
-		OldReleaseID: oldReleaseID,
-		NewReleaseID: release.ID,
-		Strategy:     strategy,
-	}
-	t.Assert(client.CreateDeployment(deployment), c.IsNil)
 	return deployment
 }
 
-func waitForDeploymentEvents(t *c.C, stream chan *deployer.DeploymentEvent, expected []*deployer.DeploymentEvent) {
+func waitForDeploymentEvents(t *c.C, stream chan *ct.DeploymentEvent, expected []*ct.DeploymentEvent) {
 	// wait for an event with no release to mark the end of the deployment,
 	// collecting events along the way
-	events := []*deployer.DeploymentEvent{}
+	events := []*ct.DeploymentEvent{}
 loop:
 	for {
 		select {
@@ -65,7 +57,7 @@ loop:
 			t.Fatal("timed out waiting for deployment event")
 		}
 	}
-	compare := func(t *c.C, i *deployer.DeploymentEvent, j *deployer.DeploymentEvent) {
+	compare := func(t *c.C, i *ct.DeploymentEvent, j *ct.DeploymentEvent) {
 		fmt.Println("Comparing", i, j)
 		t.Assert(i.ReleaseID, c.Equals, j.ReleaseID)
 		t.Assert(i.JobType, c.Equals, j.JobType)
@@ -80,17 +72,14 @@ loop:
 
 func (s *DeployerSuite) TestOneByOneStrategy(t *c.C) {
 	deployment := s.createDeployment(t, "one-by-one")
+	events := make(chan *ct.DeploymentEvent)
+	stream, err := s.controllerClient(t).StreamDeployment(deployment.ID, events)
+	t.Assert(err, c.IsNil)
+	defer stream.Close()
 	releaseID := deployment.NewReleaseID
 	oldReleaseID := deployment.OldReleaseID
 
-	client, err := deployerc.New()
-	t.Assert(err, c.IsNil)
-	events := make(chan *deployer.DeploymentEvent)
-	stream, err := client.StreamDeploymentEvents(deployment.ID, 0, events)
-	t.Assert(err, c.IsNil)
-	defer stream.Close()
-
-	expected := []*deployer.DeploymentEvent{
+	expected := []*ct.DeploymentEvent{
 		{ReleaseID: releaseID, JobType: "printer", JobState: "starting", Status: "running"},
 		{ReleaseID: releaseID, JobType: "printer", JobState: "up", Status: "running"},
 		{ReleaseID: oldReleaseID, JobType: "printer", JobState: "stopping", Status: "running"},
@@ -106,17 +95,14 @@ func (s *DeployerSuite) TestOneByOneStrategy(t *c.C) {
 
 func (s *DeployerSuite) TestAllAtOnceStrategy(t *c.C) {
 	deployment := s.createDeployment(t, "all-at-once")
+	events := make(chan *ct.DeploymentEvent)
+	stream, err := s.controllerClient(t).StreamDeployment(deployment.ID, events)
+	t.Assert(err, c.IsNil)
+	defer stream.Close()
 	releaseID := deployment.NewReleaseID
 	oldReleaseID := deployment.OldReleaseID
 
-	client, err := deployerc.New()
-	t.Assert(err, c.IsNil)
-	events := make(chan *deployer.DeploymentEvent)
-	stream, err := client.StreamDeploymentEvents(deployment.ID, 0, events)
-	t.Assert(err, c.IsNil)
-	defer stream.Close()
-
-	expected := []*deployer.DeploymentEvent{
+	expected := []*ct.DeploymentEvent{
 		{ReleaseID: releaseID, JobType: "printer", JobState: "starting", Status: "running"},
 		{ReleaseID: releaseID, JobType: "printer", JobState: "starting", Status: "running"},
 		{ReleaseID: releaseID, JobType: "printer", JobState: "up", Status: "running"},

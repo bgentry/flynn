@@ -77,6 +77,10 @@
         "scheduler": {
           "cmd": ["scheduler"],
           "omni": true
+        },
+        "deployer": {
+          "cmd": ["deployer"],
+          "omni": true
         }
       }
     },
@@ -118,6 +122,7 @@
     "app_step": "controller-inception",
     "processes": {
       "scheduler": 1,
+      "deployer": 1,
       "web": 1
     }
   },
@@ -131,29 +136,11 @@
   },
   {
     "id": "deployer",
-    "action": "deploy-app",
-    "app": {
-      "name": "deployer",
-      "protected": true
-    },
-    "artifact": {
-      "type": "docker",
-      "uri": "$image_url_prefix/deployer?id=$image_id[deployer]"
-    },
-    "release": {
-      "processes": {
-        "app": {
-          "ports": [{"proto": "tcp"}],
-          "env": {
-            "CONTROLLER_AUTH_KEY": "{{ (index .StepData \"controller-key\").Data }}"
-          }
-        }
-      }
-    },
+    "action": "run-app",
+    "app_step": "controller-inception",
     "processes": {
-      "app": 1
-    },
-    "resources": [{"name":"postgres", "url":"discoverd+http://pg-api/databases"}]
+      "deployer": 1
+    }
   },
   {
     "id": "blobstore",

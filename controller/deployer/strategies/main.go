@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"github.com/flynn/flynn/controller/client"
 	ct "github.com/flynn/flynn/controller/types"
-	"github.com/flynn/flynn/deployer/types"
 	"time"
 )
 
-type PerformFunc func(*controller.Client, *deployer.Deployment, chan<- deployer.DeploymentEvent) error
+type PerformFunc func(*controller.Client, *ct.Deployment, chan<- ct.DeploymentEvent) error
 
 var performFuncs = map[string]PerformFunc{
 	"all-at-once": allAtOnce,
@@ -46,7 +45,7 @@ func jobEventsEqual(expected, actual jobEvents) bool {
 
 type jobEvents map[string]map[string]map[string]int
 
-func waitForJobEvents(events chan *ct.JobEvent, deployEvents chan<- deployer.DeploymentEvent, expected jobEvents) error {
+func waitForJobEvents(events chan *ct.JobEvent, deployEvents chan<- ct.DeploymentEvent, expected jobEvents) error {
 	fmt.Printf("waiting for job events: %v\n", expected)
 	actual := make(jobEvents)
 	for {
@@ -63,14 +62,14 @@ func waitForJobEvents(events chan *ct.JobEvent, deployEvents chan<- deployer.Dep
 			switch event.State {
 			case "up":
 				actual[event.Job.ReleaseID][event.Type]["up"] += 1
-				deployEvents <- deployer.DeploymentEvent{
+				deployEvents <- ct.DeploymentEvent{
 					ReleaseID: event.Job.ReleaseID,
 					JobState:  "up",
 					JobType:   event.Type,
 				}
 			case "down", "crashed":
 				actual[event.Job.ReleaseID][event.Type]["down"] += 1
-				deployEvents <- deployer.DeploymentEvent{
+				deployEvents <- ct.DeploymentEvent{
 					ReleaseID: event.Job.ReleaseID,
 					JobState:  "down",
 					JobType:   event.Type,

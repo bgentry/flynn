@@ -28,12 +28,15 @@ func migrateDB(db *sql.DB) error {
     deleted_at timestamptz
 )`,
 
+		`CREATE TYPE deployment_strategy AS ENUM ('all-at-once', 'one-by-one')`,
+
 		`CREATE TABLE apps (
     app_id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     name text NOT NULL,
     release_id uuid REFERENCES releases (release_id),
     protected bool NOT NULL DEFAULT false,
 	meta hstore,
+	strategy deployment_strategy NOT NULL DEFAULT 'all-at-once',
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     deleted_at timestamptz
@@ -134,6 +137,39 @@ $$ LANGUAGE plpgsql`,
     FOR EACH ROW EXECUTE PROCEDURE notify_job_event()`,
 
 		`CREATE SEQUENCE name_ids MAXVALUE 4294967295`,
+		`CREATE TABLE deployments (
+    deployment_id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    app_id uuid NOT NULL,
+    old_release_id uuid NOT NULL,
+    new_release_id uuid NOT NULL,
+    strategy deployment_strategy NOT NULL,
+	created_at timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz)`,
+
+		`CREATE UNIQUE INDEX isolate_deploys ON deployments (old_release_id, new_release_id)
+    WHERE finished_at is NULL`,
+
+		`CREATE SEQUENCE deployment_event_ids`,
+		`CREATE TYPE deployment_status AS ENUM ('running', 'complete', 'failed')`,
+		`CREATE TABLE deployment_events (
+    event_id bigint PRIMARY KEY DEFAULT nextval('deployment_event_ids'),
+    deployment_id uuid NOT NULL REFERENCES deployments (deployment_id),
+    release_id uuid NOT NULL,
+    status deployment_status NOT NULL DEFAULT 'running',
+    job_type text,
+    job_state text,
+    created_at timestamptz NOT NULL DEFAULT now())`,
+
+		`CREATE FUNCTION notify_deployment_event() RETURNS TRIGGER AS $$
+    BEGIN
+    PERFORM pg_notify('deployment_events:' || NEW.deployment_id, NEW.event_id || '');
+    RETURN NULL;
+    END;
+$$ LANGUAGE plpgsql`,
+
+		`CREATE TRIGGER notify_deployment_event
+    AFTER INSERT ON deployment_events
+    FOR EACH ROW EXECUTE PROCEDURE notify_deployment_event()`,
 	)
 	return m.Migrate(db)
 }

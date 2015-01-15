@@ -3,10 +3,9 @@ package strategy
 import (
 	"github.com/flynn/flynn/controller/client"
 	ct "github.com/flynn/flynn/controller/types"
-	"github.com/flynn/flynn/deployer/types"
 )
 
-func oneByOne(client *controller.Client, d *deployer.Deployment, events chan<- deployer.DeploymentEvent) error {
+func oneByOne(client *controller.Client, d *ct.Deployment, events chan<- ct.DeploymentEvent) error {
 	jobStream := make(chan *ct.JobEvent)
 	stream, err := client.StreamJobEvents(d.AppID, 0, jobStream)
 	if err != nil {
@@ -33,7 +32,7 @@ func oneByOne(client *controller.Client, d *deployer.Deployment, events chan<- d
 			}); err != nil {
 				return err
 			}
-			events <- deployer.DeploymentEvent{
+			events <- ct.DeploymentEvent{
 				ReleaseID: d.NewReleaseID,
 				JobState:  "starting",
 				JobType:   typ,
@@ -50,7 +49,7 @@ func oneByOne(client *controller.Client, d *deployer.Deployment, events chan<- d
 			}); err != nil {
 				return err
 			}
-			events <- deployer.DeploymentEvent{
+			events <- ct.DeploymentEvent{
 				ReleaseID: d.OldReleaseID,
 				JobState:  "stopping",
 				JobType:   typ,
