@@ -168,11 +168,41 @@ func appHandler(c handlerConfig) (http.Handler, *martini.Martini) {
 		m.ServeHTTP(res, req)
 	})
 
-	getAppMiddleware := crud(httpRouter, "apps", ct.App{}, appRepo)
-	getReleaseMiddleware := crud(httpRouter, "releases", ct.Release{}, releaseRepo)
-	getProviderMiddleware := crud(httpRouter, "providers", ct.Provider{}, providerRepo)
+	getApp := crud(httpRouter, "apps", ct.App{}, appRepo)
+	getRelease := crud(httpRouter, "releases", ct.Release{}, releaseRepo)
+	getProvider := crud(httpRouter, "providers", ct.Provider{}, providerRepo)
 	crud(httpRouter, "artifacts", ct.Artifact{}, artifactRepo)
 	crud(httpRouter, "keys", ct.Key{}, keyRepo)
+
+	// temporary
+	getAppMiddleware := func(c martini.Context, params martini.Params, req *http.Request, r ResponseHelper) {
+		thing, err := getApp(httprouter.Params{httprouter.Param{"apps_id", params["apps_id"]}})
+		if err != nil {
+			r.Error(err)
+			return
+		}
+		c.Map(thing)
+	}
+
+	// temporary
+	getProviderMiddleware := func(c martini.Context, params martini.Params, req *http.Request, r ResponseHelper) {
+		thing, err := getProvider(httprouter.Params{httprouter.Param{"providers_id", params["providers_id"]}})
+		if err != nil {
+			r.Error(err)
+			return
+		}
+		c.Map(thing)
+	}
+
+	// temporary
+	getReleaseMiddleware := func(c martini.Context, params martini.Params, req *http.Request, r ResponseHelper) {
+		thing, err := getRelease(httprouter.Params{httprouter.Param{"releases_id", params["releases_id"]}})
+		if err != nil {
+			r.Error(err)
+			return
+		}
+		c.Map(thing)
+	}
 
 	r.Put("/apps/:apps_id/formations/:releases_id", getAppMiddleware, getReleaseMiddleware, binding.Bind(ct.Formation{}), putFormation)
 	r.Get("/apps/:apps_id/formations/:releases_id", getAppMiddleware, getFormationMiddleware, getFormation)
