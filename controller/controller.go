@@ -168,11 +168,91 @@ func appHandler(c handlerConfig) (http.Handler, *martini.Martini) {
 		m.ServeHTTP(res, req)
 	})
 
-	getApp := crud(httpRouter, "apps", ct.App{}, appRepo)
-	getRelease := crud(httpRouter, "releases", ct.Release{}, releaseRepo)
+	_getApp := crud(httpRouter, "apps", ct.App{}, appRepo)
+	_getRelease := crud(httpRouter, "releases", ct.Release{}, releaseRepo)
 	getProvider := crud(httpRouter, "providers", ct.Provider{}, providerRepo)
 	crud(httpRouter, "artifacts", ct.Artifact{}, artifactRepo)
 	crud(httpRouter, "keys", ct.Key{}, keyRepo)
+
+	getApp := func(params httprouter.Params) (*ct.App, error) {
+		_app, err := _getApp(params)
+		if err != nil {
+			return nil, err
+		}
+		app, _ := _app.(*ct.App)
+		return app, nil
+	}
+
+	getRelease := func(params httprouter.Params) (*ct.Release, error) {
+		_release, err := _getRelease(params)
+		if err != nil {
+			return nil, err
+		}
+		release, _ := _release.(*ct.Release)
+		return release, nil
+	}
+
+	httpRouter.PUT("/apps/:apps_id/formations/:releases_id", func(res http.ResponseWriter, req *http.Request, params httprouter.Params) {
+		app, err := getApp(params)
+		if err != nil {
+			respondWithError(res, err)
+			return
+		}
+		release, err := getRelease(params)
+		if err != nil {
+			respondWithError(res, err)
+			return
+		}
+
+		putFormation(formationRepo, app, release, req, res)
+	})
+
+	httpRouter.GET("/apps/:apps_id/formations/:releases_id", func(res http.ResponseWriter, req *http.Request, params httprouter.Params) {
+		app, err := getApp(params)
+		if err != nil {
+			respondWithError(res, err)
+			return
+		}
+		formation, err := formationRepo.Get(app.ID, params.ByName("releases_id"))
+		if err != nil {
+			respondWithError(res, err)
+			return
+		}
+		httphelper.JSON(res, 200, formation)
+	})
+
+	httpRouter.DELETE("/apps/:apps_id/formations/:releases_id", func(res http.ResponseWriter, req *http.Request, params httprouter.Params) {
+		app, err := getApp(params)
+		if err != nil {
+			respondWithError(res, err)
+			return
+		}
+		formation, err := formationRepo.Get(app.ID, params.ByName("releases_id"))
+		if err != nil {
+			respondWithError(res, err)
+			return
+		}
+		err = formationRepo.Remove(app.ID, formation.ReleaseID)
+		if err != nil {
+			respondWithError(res, err)
+			return
+		}
+		res.WriteHeader(200)
+	})
+
+	httpRouter.GET("/apps/:apps_id/formations", func(res http.ResponseWriter, req *http.Request, params httprouter.Params) {
+		app, err := getApp(params)
+		if err != nil {
+			respondWithError(res, err)
+			return
+		}
+		list, err := formationRepo.List(app.ID)
+		if err != nil {
+			respondWithError(res, err)
+			return
+		}
+		httphelper.JSON(res, 200, list)
+	})
 
 	// temporary
 	getAppMiddleware := func(c martini.Context, params martini.Params, req *http.Request, r ResponseHelper) {
@@ -193,21 +273,6 @@ func appHandler(c handlerConfig) (http.Handler, *martini.Martini) {
 		}
 		c.Map(thing)
 	}
-
-	// temporary
-	getReleaseMiddleware := func(c martini.Context, params martini.Params, req *http.Request, r ResponseHelper) {
-		thing, err := getRelease(httprouter.Params{httprouter.Param{"releases_id", params["releases_id"]}})
-		if err != nil {
-			r.Error(err)
-			return
-		}
-		c.Map(thing)
-	}
-
-	r.Put("/apps/:apps_id/formations/:releases_id", getAppMiddleware, getReleaseMiddleware, binding.Bind(ct.Formation{}), putFormation)
-	r.Get("/apps/:apps_id/formations/:releases_id", getAppMiddleware, getFormationMiddleware, getFormation)
-	r.Delete("/apps/:apps_id/formations/:releases_id", getAppMiddleware, getFormationMiddleware, deleteFormation)
-	r.Get("/apps/:apps_id/formations", getAppMiddleware, listFormations)
 
 	r.Post("/apps/:apps_id/jobs", getAppMiddleware, binding.Bind(ct.NewJob{}), runJob)
 	r.Get("/apps/:apps_id/jobs/:jobs_id", getAppMiddleware, getJob)
@@ -263,53 +328,30 @@ func muxHandler(main http.Handler, authKey string) http.Handler {
 	})
 }
 
-func putFormation(formation ct.Formation, app *ct.App, release *ct.Release, repo *FormationRepo, r ResponseHelper) {
+func putFormation(repo *FormationRepo, app *ct.App, release *ct.Release, req *http.Request, res http.ResponseWriter) {
+	var formation ct.Formation
+	dec := json.NewDecoder(req.Body)
+	err := dec.Decode(&formation)
+	if err != nil {
+		respondWithError(res, err)
+		return
+	}
+
 	formation.AppID = app.ID
 	formation.ReleaseID = release.ID
 	if app.Protected {
 		for typ := range release.Processes {
 			if formation.Processes[typ] == 0 {
-				r.Error(ct.ValidationError{Message: "unable to scale to zero, app is protected"})
+				respondWithError(res, ct.ValidationError{Message: "unable to scale to zero, app is protected"})
 				return
 			}
 		}
 	}
 	if err := repo.Add(&formation); err != nil {
-		r.Error(err)
+		respondWithError(res, err)
 		return
 	}
-	r.JSON(200, &formation)
-}
-
-func getFormationMiddleware(c martini.Context, app *ct.App, params martini.Params, repo *FormationRepo, r ResponseHelper) {
-	formation, err := repo.Get(app.ID, params["releases_id"])
-	if err != nil {
-		r.Error(err)
-		return
-	}
-	c.Map(formation)
-}
-
-func getFormation(formation *ct.Formation, r ResponseHelper) {
-	r.JSON(200, formation)
-}
-
-func deleteFormation(formation *ct.Formation, repo *FormationRepo, r ResponseHelper) {
-	err := repo.Remove(formation.AppID, formation.ReleaseID)
-	if err != nil {
-		r.Error(err)
-		return
-	}
-	r.WriteHeader(200)
-}
-
-func listFormations(app *ct.App, repo *FormationRepo, r ResponseHelper) {
-	list, err := repo.List(app.ID)
-	if err != nil {
-		r.Error(err)
-		return
-	}
-	r.JSON(200, list)
+	httphelper.JSON(res, 200, &formation)
 }
 
 type releaseID struct {
