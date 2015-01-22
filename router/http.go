@@ -485,7 +485,7 @@ func (s *httpService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if isSticky && stickyAddr != backend {
-		res.Header.Add("Set-Cookie", s.newStickyCookie(backend).String())
+		http.SetCookie(w, s.newStickyCookie(backend))
 	}
 
 	for _, h := range hopHeaders {
