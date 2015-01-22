@@ -607,9 +607,7 @@ func (s *httpService) forwardAndProxyTCP(w http.ResponseWriter, req *http.Reques
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {
-		log.Println("not a hijacker")
-		failAndClose(w, 500, http.StatusText(500))
-		return
+		panic("not a hijacker")
 	}
 	downconn, _, err := hj.Hijack()
 	if err != nil {
