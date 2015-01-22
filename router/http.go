@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/tls"
@@ -553,9 +554,47 @@ func (s *httpService) forwardAndProxyTCP(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	// TODO(bgentry): need to complete the handshake and set sticky cookie on
-	// response, otherwise websocket reconnections won't go to the right backend
-	// :(
+	err = req.Write(upconn)
+	if err != nil {
+		log.Println("error copying request to target:", err)
+		fail(w, 503, http.StatusText(503))
+		return
+	}
+
+	// Need to complete the handshake and set sticky cookie on response, otherwise
+	// websocket reconnections won't go to the right backend
+	upconnbr := bufio.NewReader(upconn)
+	res, err := http.ReadResponse(upconnbr, req)
+	if err != nil {
+		fail(w, 503, http.StatusText(503))
+		return
+	}
+	defer res.Body.Close()
+
+	// Copy the response headers and body over to the downstream ResponseWriter,
+	// the same as done in the non-TCP path.
+	copyHeader(w.Header(), res.Header)
+
+	if res.StatusCode != 101 {
+		// Upgrade was not successful, not going to reuse this connection.
+		w.Header().Set("Connection", "close")
+	}
+
+	if isSticky && stickyAddr != backend {
+		http.SetCookie(w, s.newStickyCookie(backend))
+	}
+
+	w.WriteHeader(res.StatusCode)
+	_, err = io.Copy(w, res.Body) // TODO(bgentry): consider using a flush interval
+	if err != nil {
+		log.Println("reverse proxy copy err:", err)
+		return
+	}
+
+	if res.StatusCode != 101 {
+		return
+	}
+	res.Body.Close() // close this now since we've copied everything
 
 	hj, ok := w.(http.Hijacker)
 	if !ok {
@@ -571,20 +610,13 @@ func (s *httpService) forwardAndProxyTCP(w http.ResponseWriter, req *http.Reques
 	}
 	defer downconn.Close()
 
-	err = req.Write(upconn)
-	if err != nil {
-		log.Println("error copying request to target:", err)
-		// TODO(bgentry): write proper 503 response for downstream
-		return
-	}
-
 	errc := make(chan error, 2)
 	cp := func(dst io.Writer, src io.Reader) {
 		_, err := io.Copy(dst, src)
 		errc <- err
 	}
 	go cp(upconn, downconn)
-	go cp(downconn, upconn)
+	go cp(downconn, upconnbr)
 	<-errc
 }
 
