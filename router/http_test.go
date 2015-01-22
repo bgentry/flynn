@@ -415,19 +415,22 @@ func (s *S) TestStickyHTTPRouteWebsocket(c *C) {
 	defer srv2.Close()
 
 	l, discoverd := newHTTPListener(c)
+	url := "http://" + l.Addr
 	defer l.Close()
 	defer discoverd.UnregisterAll()
 
 	addStickyHTTPRoute(c, l)
 
 	steps := []struct {
-		do      func()
-		backend string
+		do        func()
+		backend   string
+		setCookie bool
 	}{
 		// step 1: register srv1, assert requests to srv1
 		{
-			do:      func() { discoverdRegisterHTTP(c, l, srv1.Listener.Addr().String()) },
-			backend: "1",
+			do:        func() { discoverdRegisterHTTP(c, l, srv1.Listener.Addr().String()) },
+			backend:   "1",
+			setCookie: true,
 		},
 		// step 2: register srv2, assert requests stay with srv1
 		{
@@ -436,17 +439,17 @@ func (s *S) TestStickyHTTPRouteWebsocket(c *C) {
 		},
 		// step 3: unregister srv1, assert requests switch to srv2
 		{
-			do:      func() { discoverdUnregister(c, discoverd, "test", srv1.Listener.Addr().String()) },
-			backend: "2",
+			do:        func() { discoverdUnregister(c, discoverd, "test", srv1.Listener.Addr().String()) },
+			backend:   "2",
+			setCookie: true,
 		},
 	}
 
 	var sessionCookie *http.Cookie
 	for _, step := range steps {
-		url, expected := "http://"+l.Addr, step.backend
-
 		step.do()
 
+		cookieSet := false
 		for i := 0; i < 10; i++ {
 			req := newReq(url, "example.com")
 			if sessionCookie != nil {
@@ -460,17 +463,20 @@ func (s *S) TestStickyHTTPRouteWebsocket(c *C) {
 			c.Assert(res.StatusCode, Equals, 200)
 			data, err := ioutil.ReadAll(res.Body)
 			c.Assert(err, IsNil)
-			c.Assert(string(data), Equals, expected)
+			c.Assert(string(data), Equals, step.backend)
 			// make sure unsuccessful upgrade conn was closed
 			c.Assert(res.Close, Equals, true)
 
 			// reuse the session cookie if present
 			for _, c := range res.Cookies() {
 				if c.Name == stickyCookie {
+					cookieSet = true
 					sessionCookie = c
 				}
 			}
 		}
+
+		c.Assert(cookieSet, Equals, step.setCookie)
 
 		httpClient.Transport.(*http.Transport).CloseIdleConnections()
 	}
