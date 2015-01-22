@@ -425,7 +425,7 @@ func (s *httpService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Most of this is borrowed from httputil.ReverseProxy
-	outreq := new(http.Request)
+	outreq := &http.Request{}
 	*outreq = *req // includes shallow copies of maps, but okay
 
 	// Pass the Request-URI verbatim without any modifications
