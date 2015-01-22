@@ -303,6 +303,11 @@ func (s *HTTPListener) findRouteForHost(host string) *httpRoute {
 	return nil
 }
 
+func failAndClose(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Connection", "close")
+	fail(w, code, msg)
+}
+
 func fail(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(msg)))
 	w.WriteHeader(code)
@@ -550,14 +555,15 @@ func (s *httpService) forwardAndProxyTCP(w http.ResponseWriter, req *http.Reques
 		break
 	}
 	if upconn == nil {
-		fail(w, 503, http.StatusText(503))
+		log.Println("no backends available")
+		failAndClose(w, 503, http.StatusText(503))
 		return
 	}
 
 	err = req.Write(upconn)
 	if err != nil {
 		log.Println("error copying request to target:", err)
-		fail(w, 503, http.StatusText(503))
+		failAndClose(w, 503, http.StatusText(503))
 		return
 	}
 
@@ -566,7 +572,8 @@ func (s *httpService) forwardAndProxyTCP(w http.ResponseWriter, req *http.Reques
 	upconnbr := bufio.NewReader(upconn)
 	res, err := http.ReadResponse(upconnbr, req)
 	if err != nil {
-		fail(w, 503, http.StatusText(503))
+		log.Println("http: proxy error:", err)
+		failAndClose(w, 503, http.StatusText(503))
 		return
 	}
 	defer res.Body.Close()
@@ -599,13 +606,13 @@ func (s *httpService) forwardAndProxyTCP(w http.ResponseWriter, req *http.Reques
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		log.Println("not a hijacker")
-		fail(w, 500, http.StatusText(500))
+		failAndClose(w, 500, http.StatusText(500))
 		return
 	}
 	downconn, _, err := hj.Hijack()
 	if err != nil {
 		log.Println("hijack failed:", err)
-		fail(w, 500, http.StatusText(500))
+		failAndClose(w, 500, http.StatusText(500))
 		return
 	}
 	defer downconn.Close()
