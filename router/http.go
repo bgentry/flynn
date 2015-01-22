@@ -325,9 +325,11 @@ func (s *HTTPListener) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// TODO(bgentry): find a better way to access this setting in the service
 	// where it's needed.
+	stickyValue := "false"
 	if r.Sticky {
-		req.Header.Set(hdrUseStickySessions, "true")
+		stickyValue = "true"
 	}
+	req.Header.Set(hdrUseStickySessions, stickyValue)
 
 	r.service.ServeHTTP(w, req)
 }
