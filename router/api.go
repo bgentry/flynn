@@ -60,6 +60,11 @@ func createOrReplaceRoute(req *http.Request, route router.Route, router *Router,
 	route.CreatedAt = &now
 	route.UpdatedAt = &now
 
+	if route.ID == "" {
+		createRoute(req, route, router, r)
+		return
+	}
+
 	l := listenerFor(router, route.Type)
 	if l == nil {
 		r.JSON(400, "Invalid route type")
