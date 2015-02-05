@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"time"
 
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/go-martini/martini"
 	"github.com/flynn/flynn/Godeps/_workspace/src/github.com/martini-contrib/binding"
@@ -36,10 +35,6 @@ func apiHandler(rtr *Router) http.Handler {
 }
 
 func createRoute(req *http.Request, route router.Route, router *Router, r render.Render) {
-	now := time.Now()
-	route.CreatedAt = &now
-	route.UpdatedAt = &now
-
 	l := listenerFor(router, route.Type)
 	if l == nil {
 		r.JSON(400, "Invalid route type")
@@ -56,10 +51,6 @@ func createRoute(req *http.Request, route router.Route, router *Router, r render
 }
 
 func createOrReplaceRoute(req *http.Request, route router.Route, router *Router, r render.Render) {
-	now := time.Now()
-	route.CreatedAt = &now
-	route.UpdatedAt = &now
-
 	if route.ID == "" {
 		createRoute(req, route, router, r)
 		return
