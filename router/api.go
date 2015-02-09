@@ -93,9 +93,9 @@ func formatRoute(r *router.Route) *router.Route {
 		httpRoute := r.HTTPRoute()
 		httpRoute.TLSKey = ""
 		httpRoute.Route = nil
-		conf, _ := json.Marshal(httpRoute)
-		jsonConf := json.RawMessage(conf)
-		r.Config = &jsonConf
+		rawConfig, _ := json.Marshal(httpRoute)
+		config := router.Config(rawConfig)
+		r.Config = &config
 	}
 	return r
 }
