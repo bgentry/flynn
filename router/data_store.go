@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -193,8 +194,9 @@ func (d *pgDataStore) startListener(idc chan<- string) error {
 	}
 
 	go func() {
-		defer d.pgx.Release(conn)
+		defer unlistenAndRelease(d.pgx, conn, "routes")
 		defer close(idc)
+
 		for {
 			select {
 			case <-d.donec:
@@ -226,6 +228,17 @@ func (d *pgDataStore) startListener(idc chan<- string) error {
 	}()
 
 	return nil
+}
+
+const sqlUnlisten = `UNLISTEN %s`
+
+func unlistenAndRelease(pool *pgx.ConnPool, conn *pgx.Conn, channel string) {
+	_, err := conn.Exec(fmt.Sprintf(sqlUnlisten, channel))
+	if err != nil {
+		conn.Close()
+		return
+	}
+	pool.Release(conn)
 }
 
 func newRoute() *router.Route {
