@@ -130,6 +130,7 @@ func (d *pgDataStore) Sync(h SyncHandler, started chan<- error) {
 		started <- err
 		return
 	}
+	defer d.StopSync()
 
 	initialRoutes, err := d.List()
 	if err != nil {
@@ -148,7 +149,7 @@ func (d *pgDataStore) Sync(h SyncHandler, started chan<- error) {
 	for {
 		select {
 		case id := <-idc:
-			d.update(h, id)
+			d.handleUpdate(h, id)
 		case <-d.donec:
 			for range idc {
 			}
@@ -161,7 +162,7 @@ func (d *pgDataStore) StopSync() {
 	d.doneo.Do(func() { close(d.donec) })
 }
 
-func (d *pgDataStore) update(h SyncHandler, id string) {
+func (d *pgDataStore) handleUpdate(h SyncHandler, id string) {
 	route, err := d.Get(id)
 	if err == ErrNotFound {
 		if err = h.Remove(id); err != nil && err != ErrNotFound {
@@ -191,23 +192,17 @@ func (d *pgDataStore) startListener(idc chan<- string) error {
 		return err
 	}
 
-	var (
-		mu   sync.Mutex
-		done bool
-	)
-
 	go func() {
 		defer d.pgx.Release(conn)
 		defer close(idc)
 		for {
+			select {
+			case <-d.donec:
+				return
+			default:
+			}
 			notification, err := conn.WaitForNotification(time.Second)
 			if err == pgx.ErrNotificationTimeout {
-				mu.Lock()
-				if done {
-					mu.Unlock()
-					return
-				}
-				mu.Unlock()
 				continue
 			}
 			if err != nil {
@@ -227,22 +222,7 @@ func (d *pgDataStore) startListener(idc chan<- string) error {
 			if routeType == d.rt {
 				idc <- id
 			}
-
-			mu.Lock()
-			if done {
-				mu.Unlock()
-				return
-			}
-			mu.Unlock()
 		}
-	}()
-
-	go func() {
-		<-d.donec
-
-		mu.Lock()
-		done = true
-		mu.Unlock()
 	}()
 
 	return nil
