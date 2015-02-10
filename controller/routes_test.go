@@ -54,7 +54,7 @@ func (r *fakeRouter) GetRoute(routeType, id string) (*router.Route, error) {
 	return route, nil
 }
 
-func (r *fakeRouter) SetRoute(*router.Route) error { return nil }
+func (r *fakeRouter) UpdateRoute(*router.Route) error { return nil }
 
 type sortedRoutes []*router.Route
 
