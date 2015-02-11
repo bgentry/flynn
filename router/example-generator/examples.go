@@ -30,7 +30,7 @@ func main() {
 
 	examples := []g.Example{
 		{"route_create", e.createRoute},
-		{"route_set", e.updateRoute},
+		{"route_update", e.updateRoute},
 		{"route_list", e.listRoutes},
 		{"route_get", e.getRoute},
 		{"route_delete", e.deleteRoute},
