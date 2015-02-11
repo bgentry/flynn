@@ -111,6 +111,7 @@ func (d *pgDataStore) List() ([]*router.Route, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	routes := []*router.Route{}
 	for rows.Next() {
