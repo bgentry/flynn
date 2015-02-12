@@ -178,7 +178,8 @@
     },
     "processes": {
       "app": 1
-    }
+    },
+    "resources": [{"name":"postgres", "url":"http://pg-api.discoverd/databases"}]
   },
   {
     "id": "gitreceive-key",
