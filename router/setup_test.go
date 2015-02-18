@@ -71,10 +71,11 @@ type S struct {
 
 var _ = Suite(&S{})
 
+const dbname = "routertest"
+
 func (s *S) SetUpSuite(c *C) {
 	s.discoverd, s.cleanup = setup(c)
 
-	dbname := "routertest"
 	if err := pgtestutils.SetupPostgres(dbname); err != nil {
 		c.Fatal(err)
 	}
@@ -88,12 +89,7 @@ func (s *S) SetUpSuite(c *C) {
 		c.Fatal(err)
 	}
 	db.Close()
-	pgxpool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
-		ConnConfig: pgx.ConnConfig{
-			Host:     os.Getenv("PGHOST"),
-			Database: dbname,
-		},
-	})
+	pgxpool, err := pgx.NewConnPool(newPgxConnPoolConfig())
 	if err != nil {
 		c.Fatal(err)
 	}
@@ -101,6 +97,14 @@ func (s *S) SetUpSuite(c *C) {
 	s.pgx.Exec(sqlCreateTruncateTables)
 }
 
+func newPgxConnPoolConfig() pgx.ConnPoolConfig {
+	return pgx.ConnPoolConfig{
+		ConnConfig: pgx.ConnConfig{
+			Host:     os.Getenv("PGHOST"),
+			Database: dbname,
+		},
+	}
+}
 func (s *S) TearDownSuite(c *C) {
 	s.cleanup()
 }

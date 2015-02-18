@@ -116,6 +116,9 @@ func (s *HTTPListener) startSync(ctx context.Context) error {
 	}
 }
 
+// Testing hook:
+var preResync func()
+
 func (s *HTTPListener) runSync(ctx context.Context, errc chan error) {
 	err := <-errc
 
@@ -125,6 +128,9 @@ func (s *HTTPListener) runSync(ctx context.Context, errc chan error) {
 		}
 		log.Printf("router: sync error: %s", err)
 
+		if preResync != nil {
+			preResync()
+		}
 		s.doSync(ctx, errc)
 
 		err = <-errc
